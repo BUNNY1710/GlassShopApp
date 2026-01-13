@@ -1,0 +1,5 @@
+.metadata
+glass-ai-agent-frontend/node_modules/**
+GlassShop/.mvn/**
+GlassShop/.settings/**
+GlassShop/target/**
