@@ -4,6 +4,8 @@
 
 This is the fastest way to deploy your Glass Shop Application to AWS EC2 from GitHub.
 
+**🪟 Windows Users**: See `WINDOWS_QUICK_START.md` for Windows-specific instructions!
+
 ---
 
 ## ✅ What You Need
@@ -11,6 +13,8 @@ This is the fastest way to deploy your Glass Shop Application to AWS EC2 from Gi
 1. GitHub repository URL (where your code is)
 2. AWS EC2 instance running Ubuntu 22.04
 3. SSH access to EC2 instance
+   - **Windows**: Use Git Bash (comes with Git for Windows) - See `WINDOWS_QUICK_START.md`
+   - **Mac/Linux**: Use Terminal
 
 ---
 

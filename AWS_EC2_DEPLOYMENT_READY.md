@@ -37,6 +37,8 @@ All deployment scripts and documentation have been created. You can now deploy y
 
 ## 🚀 Quick Deployment (5 Minutes)
 
+**🪟 Windows Users**: See `deploy/WINDOWS_QUICK_START.md` for Windows-specific instructions!
+
 ### Step 1: Push Code to GitHub
 
 ```bash
