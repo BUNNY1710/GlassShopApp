@@ -109,6 +109,7 @@ public class QuotationService {
         quotation.setCustomerAddress(customer.getAddress());
         quotation.setCustomerGstin(customer.getGstin());
         quotation.setCustomerState(customer.getState() != null ? customer.getState() : request.getCustomerState());
+        quotation.setPolish(request.getPolish()); // Set polish field
 
         // Process items and calculate amounts
         List<QuotationItem> items = new ArrayList<>();

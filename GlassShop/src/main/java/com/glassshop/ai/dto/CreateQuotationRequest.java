@@ -43,6 +43,8 @@ public class CreateQuotationRequest {
     private Double gstPercentage;
     
     private String customerState; // For inter-state vs intra-state calculation
+    
+    private String polish; // "Hash-Polish" or "CNC Polish"
 
     // Getters and Setters
     public Long getCustomerId() {
@@ -131,6 +133,14 @@ public class CreateQuotationRequest {
 
     public void setCustomerState(String customerState) {
         this.customerState = customerState;
+    }
+
+    public String getPolish() {
+        return polish;
+    }
+
+    public void setPolish(String polish) {
+        this.polish = polish;
     }
 }
 

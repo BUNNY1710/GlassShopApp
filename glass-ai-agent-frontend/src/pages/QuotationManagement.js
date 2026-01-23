@@ -67,6 +67,7 @@ function QuotationManagement() {
         selectedWidthTableValue: null, // Auto-selected from table
         polishSelection: [], // Array of {number, type: 'P'|'H'|'B', checked: boolean}
         polishRates: { P: 15, H: 75, B: 75 }, // Default rates
+        polish: "", // "Hash-Polish" or "CNC Polish" - per item
         quantity: 1,
         ratePerSqft: "",
         design: "", // Keep for backward compatibility
@@ -134,6 +135,7 @@ function QuotationManagement() {
           selectedWidthTableValue: null,
           polishSelection: [],
           polishRates: { P: 15, H: 75, B: 75 },
+          polish: "", // "Hash-Polish" or "CNC Polish" - per item
           quantity: 1,
           ratePerSqft: "",
           design: "",
@@ -515,6 +517,7 @@ function QuotationManagement() {
         ...formData,
         customerId: finalCustomerId,
         transportationRequired: formData.transportationRequired || false,
+        polish: formData.polish || "", // Include polish field
         items: formData.items.map((item) => {
           // Calculate area in the input unit for storage
           const areaInUnit = calculateAreaInUnit(
@@ -539,6 +542,7 @@ function QuotationManagement() {
             selectedWidthTableValue: item.selectedWidthTableValue,
             polishSelection: item.polishSelection || [],
             polishRates: item.polishRates || { P: 15, H: 75, B: 75 },
+            itemPolish: item.polish || "", // Store item-level polish (Hash-Polish or CNC Polish)
             heightOriginal: item.height || "", // Store original input (fraction or decimal)
             widthOriginal: item.width || "",   // Store original input (fraction or decimal)
             sizeInMM: item.sizeInMM || false  // Store unit mode
@@ -1384,7 +1388,6 @@ function QuotationManagement() {
                             required
                             value={item.glassType}
                             onChange={(e) => handleItemChange(index, "glassType", e.target.value)}
-                            onFocus={() => setShowStockDropdown({ ...showStockDropdown, [index]: true })}
                             placeholder="Click to select from available stock..."
                             style={{
                               width: "100%",
@@ -1949,6 +1952,78 @@ function QuotationManagement() {
                               Enter height and width to see polish selection options
                             </p>
                           )}
+                          
+                          {/* Polish Type Selection (Hash-Polish or CNC Polish) */}
+                          <div style={{ marginTop: "20px", paddingTop: "20px", borderTop: "2px solid #e5e7eb" }}>
+                            <label style={{ display: "block", marginBottom: "12px", color: "#374151", fontWeight: "600", fontSize: "15px" }}>
+                              Polish Type
+                            </label>
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: "15px",
+                                padding: "12px",
+                                borderRadius: "8px",
+                                border: "1px solid #d1d5db",
+                                backgroundColor: "#ffffff",
+                              }}
+                            >
+                              <label
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "8px",
+                                  cursor: "pointer",
+                                  padding: "8px 12px",
+                                  borderRadius: "6px",
+                                  backgroundColor: item.polish === "Hash-Polish" ? "#eef2ff" : "transparent",
+                                  border: item.polish === "Hash-Polish" ? "2px solid #6366f1" : "2px solid transparent",
+                                  transition: "all 0.2s",
+                                  flex: 1,
+                                }}
+                              >
+                                <input
+                                  type="radio"
+                                  value="Hash-Polish"
+                                  checked={item.polish === "Hash-Polish"}
+                                  onChange={(e) => {
+                                    const newItems = [...formData.items];
+                                    newItems[index].polish = e.target.value;
+                                    setFormData({ ...formData, items: newItems });
+                                  }}
+                                  style={{ cursor: "pointer" }}
+                                />
+                                <span style={{ fontSize: "14px", fontWeight: "500", color: "#374151" }}>Hash-Polish</span>
+                              </label>
+                              <label
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "8px",
+                                  cursor: "pointer",
+                                  padding: "8px 12px",
+                                  borderRadius: "6px",
+                                  backgroundColor: item.polish === "CNC Polish" ? "#eef2ff" : "transparent",
+                                  border: item.polish === "CNC Polish" ? "2px solid #6366f1" : "2px solid transparent",
+                                  transition: "all 0.2s",
+                                  flex: 1,
+                                }}
+                              >
+                                <input
+                                  type="radio"
+                                  value="CNC Polish"
+                                  checked={item.polish === "CNC Polish"}
+                                  onChange={(e) => {
+                                    const newItems = [...formData.items];
+                                    newItems[index].polish = e.target.value;
+                                    setFormData({ ...formData, items: newItems });
+                                  }}
+                                  style={{ cursor: "pointer" }}
+                                />
+                                <span style={{ fontSize: "14px", fontWeight: "500", color: "#374151" }}>CNC Polish</span>
+                              </label>
+                            </div>
+                          </div>
                         </div>
                       </div>
                       <div>

@@ -1175,8 +1175,8 @@ function InvoiceManagement() {
                           link.remove();
                           window.URL.revokeObjectURL(url);
                         } catch (error) {
-                          console.error("Failed to download basic invoice", error);
-                          alert("Failed to download basic invoice PDF");
+                          console.error("Failed to download estimate bill", error);
+                          alert("Failed to download estimate bill PDF");
                         }
                       }}
                       style={{
@@ -1196,7 +1196,7 @@ function InvoiceManagement() {
                       onMouseOver={(e) => (e.target.style.backgroundColor = "#7c3aed")}
                       onMouseOut={(e) => (e.target.style.backgroundColor = "#8b5cf6")}
                     >
-                      📋 Download Basic Bill
+                      📋 Download Estimate Bill
                     </button>
                     <button
                       onClick={async () => {
@@ -1210,8 +1210,8 @@ function InvoiceManagement() {
                             };
                           }
                         } catch (error) {
-                          console.error("Failed to print basic invoice", error);
-                          alert("Failed to print basic invoice PDF");
+                          console.error("Failed to print estimate bill", error);
+                          alert("Failed to print estimate bill PDF");
                         }
                       }}
                       style={{
@@ -1231,7 +1231,7 @@ function InvoiceManagement() {
                       onMouseOver={(e) => (e.target.style.backgroundColor = "#9333ea")}
                       onMouseOut={(e) => (e.target.style.backgroundColor = "#a855f7")}
                     >
-                      🖨️ Print Basic Bill
+                      🖨️ Print Estimate Bill
                     </button>
                     <button
                       onClick={async () => {

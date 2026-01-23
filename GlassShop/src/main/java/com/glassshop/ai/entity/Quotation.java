@@ -123,6 +123,9 @@ public class Quotation {
     @Column(name = "rejection_reason", columnDefinition = "TEXT")
     private String rejectionReason;
 
+    @Column(name = "polish", length = 50)
+    private String polish; // "Hash-Polish" or "CNC Polish"
+
     // Metadata
     @Column(name = "created_by", length = 255)
     private String createdBy;
@@ -362,6 +365,14 @@ public class Quotation {
 
     public void setRejectionReason(String rejectionReason) {
         this.rejectionReason = rejectionReason;
+    }
+
+    public String getPolish() {
+        return polish;
+    }
+
+    public void setPolish(String polish) {
+        this.polish = polish;
     }
 
     public String getCreatedBy() {
