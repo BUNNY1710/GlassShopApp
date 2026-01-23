@@ -111,13 +111,27 @@ function AuditLogs() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   useEffect(() => {
+    const role = localStorage.getItem("role");
+    
+    // Check if user is admin before making the request
+    if (role !== "ROLE_ADMIN") {
+      setError("You are not authorized to view audit logs. Admin access required.");
+      return;
+    }
+
     api.get("/audit/recent")
-      .then(res => setLogs(res.data))
+      .then(res => {
+        setLogs(res.data || []);
+        setError("");
+      })
       .catch(err => {
-        if (err.response?.status === 403) {
-          setError("You are not authorized to view audit logs");
+        console.error("Audit logs error:", err);
+        if (err.response?.status === 403 || err.response?.status === 401) {
+          setError("You are not authorized to view audit logs. Please ensure you are logged in as an admin.");
+        } else if (err.response?.status === 404) {
+          setError("Audit logs endpoint not found. Please check the server configuration.");
         } else {
-          setError("Failed to load audit logs");
+          setError("Failed to load audit logs. Please try again later.");
         }
       });
   }, []);

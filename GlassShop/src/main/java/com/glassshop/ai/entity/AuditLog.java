@@ -37,7 +37,7 @@ public class AuditLog {
     private int quantity;
     
     @Column(name = "stand_no")
-    private int standNo;
+    private Integer standNo;
 
     @Column(name = "height", length = 100)
     private String height;
@@ -142,11 +142,11 @@ public class AuditLog {
         this.quantity = quantity;
     }
 
-    public int getStandNo() {
+    public Integer getStandNo() {
         return standNo;
     }
 
-    public void setStandNo(int standNo) {
+    public void setStandNo(Integer standNo) {
         this.standNo = standNo;
     }
 

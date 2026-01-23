@@ -26,6 +26,8 @@ function QuotationManagement() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [showStockDropdown, setShowStockDropdown] = useState({});
   const [confirmAction, setConfirmAction] = useState(null); // { type: 'CONFIRM'|'REJECT'|'DELETE', quotationId: number, quotationNumber: string }
+  const [showRejectionReasonModal, setShowRejectionReasonModal] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState("");
 
   const getDefaultValidUntil = (quotationDate) => {
     if (!quotationDate) return "";
@@ -56,11 +58,18 @@ function QuotationManagement() {
         thickness: "",
         height: "",
         width: "",
-        heightUnit: "FEET",
-        widthUnit: "FEET",
+        sizeInMM: false, // Default to inches
+        heightUnit: "INCH", // Default to INCH
+        widthUnit: "INCH", // Default to INCH
+        heightTableNumber: 6, // Default table number
+        widthTableNumber: 6, // Default table number
+        selectedHeightTableValue: null, // Auto-selected from table
+        selectedWidthTableValue: null, // Auto-selected from table
+        polishSelection: [], // Array of {number, type: 'P'|'H'|'B', checked: boolean}
+        polishRates: { P: 15, H: 75, B: 75 }, // Default rates
         quantity: 1,
         ratePerSqft: "",
-        design: "",
+        design: "", // Keep for backward compatibility
         hsnCode: "",
         description: "",
       },
@@ -116,8 +125,15 @@ function QuotationManagement() {
           thickness: "",
           height: "",
           width: "",
-          heightUnit: "FEET",
-          widthUnit: "FEET",
+          sizeInMM: false,
+          heightUnit: "INCH",
+          widthUnit: "INCH",
+          heightTableNumber: 6,
+          widthTableNumber: 6,
+          selectedHeightTableValue: null,
+          selectedWidthTableValue: null,
+          polishSelection: [],
+          polishRates: { P: 15, H: 75, B: 75 },
           quantity: 1,
           ratePerSqft: "",
           design: "",
@@ -196,24 +212,189 @@ function QuotationManagement() {
     }
   };
 
+  // Helper function to generate table values (6, 12, 18, 24, 30, 36, 42, 48, 54, 60, 66)
+  const generateTableValues = (tableNumber) => {
+    const values = [];
+    for (let i = 1; i <= 11; i++) {
+      values.push(tableNumber * i);
+    }
+    return values; // Returns [6, 12, 18, 24, 30, 36, 42, 48, 54, 60, 66] for table 6
+  };
+
+  // Find next available number in table based on input value
+  // If input exactly matches a table value, return that value
+  // Otherwise, return the next number in the table sequence
+  // For table 1: 1,2,3,4,5,6,7,8,9,10,11,12... - if input is 9, return 9 (exact match)
+  // For table 2: 2,4,6,8,10,12... - if input is 9, return 10 (next after 9)
+  // For table 6: 6,12,18,24... - if input is 9, return 12 (next after 9)
+  const findNextTableValue = (inputValue, tableNumber) => {
+    if (!inputValue || inputValue === "") return null;
+    const value = parseFloat(inputValue);
+    if (isNaN(value)) return null;
+    
+    // Generate all table values up to a reasonable maximum (e.g., 100)
+    const maxMultiplier = Math.ceil(100 / tableNumber);
+    const tableValues = [];
+    for (let i = 1; i <= maxMultiplier; i++) {
+      tableValues.push(tableNumber * i);
+    }
+    
+    // First check if the input value exactly matches any table value
+    const exactMatch = tableValues.find(tv => Math.abs(tv - value) < 0.01); // Allow small floating point differences
+    if (exactMatch !== undefined) {
+      return exactMatch; // Return exact match
+    }
+    
+    // If no exact match, find the first table value that is > input value (next number in sequence)
+    const nextValue = tableValues.find(tv => tv > value);
+    
+    // If no value found (input exceeds all table values), return the last table value
+    return nextValue || tableValues[tableValues.length - 1];
+  };
+
+  // Convert MM to INCH
+  const mmToInch = (mm) => {
+    return mm / 25.4;
+  };
+
+  // Convert INCH to MM
+  const inchToMM = (inch) => {
+    return inch * 25.4;
+  };
+
+  // Parse fraction input to decimal
+  // Supports formats like: "9 1/2", "9-1/2", "1/2", "9.5", "9"
+  const parseFraction = (input) => {
+    if (!input || input === "") return null;
+    
+    const str = input.toString().trim();
+    
+    // Check if it's a simple number (decimal or integer)
+    if (/^\d+\.?\d*$/.test(str)) {
+      return parseFloat(str);
+    }
+    
+    // Check for fraction formats: "9 1/2", "9-1/2", "1/2"
+    // Pattern: optional whole number, optional space or dash, fraction
+    const fractionPattern = /^(\d+)?[\s-]?(\d+)\/(\d+)$/;
+    const match = str.match(fractionPattern);
+    
+    if (match) {
+      const wholePart = match[1] ? parseFloat(match[1]) : 0;
+      const numerator = parseFloat(match[2]);
+      const denominator = parseFloat(match[3]);
+      
+      if (denominator === 0) return null; // Division by zero
+      
+      const fractionPart = numerator / denominator;
+      return wholePart + fractionPart;
+    }
+    
+    // If no pattern matches, try to parse as float
+    const parsed = parseFloat(str);
+    return isNaN(parsed) ? null : parsed;
+  };
+
   const handleItemChange = (index, field, value) => {
     const newItems = [...formData.items];
     newItems[index][field] = value;
 
+    // Handle sizeInMM checkbox - update units accordingly
+    if (field === "sizeInMM") {
+      newItems[index].heightUnit = value ? "MM" : "INCH";
+      newItems[index].widthUnit = value ? "MM" : "INCH";
+    }
+
+    // Auto-select table values when height/width changes
+    if (field === "height" && value) {
+      // Parse fraction if in INCH mode, otherwise parse as decimal
+      const heightValue = newItems[index].sizeInMM ? parseFloat(value) : parseFraction(value);
+      if (heightValue !== null && !isNaN(heightValue)) {
+        // Convert to inches if in MM for table calculation
+        const valueInInches = newItems[index].sizeInMM ? mmToInch(heightValue) : heightValue;
+        const nextValue = findNextTableValue(valueInInches, newItems[index].heightTableNumber || 6);
+        newItems[index].selectedHeightTableValue = nextValue;
+        // Store the decimal value for calculations
+        newItems[index].heightDecimal = valueInInches;
+      }
+      // Update polish selection numbers after both height and width are potentially updated
+      updatePolishSelectionNumbers(newItems, index);
+    }
+
+    if (field === "width" && value) {
+      // Parse fraction if in INCH mode, otherwise parse as decimal
+      const widthValue = newItems[index].sizeInMM ? parseFloat(value) : parseFraction(value);
+      if (widthValue !== null && !isNaN(widthValue)) {
+        // Convert to inches if in MM for table calculation
+        const valueInInches = newItems[index].sizeInMM ? mmToInch(widthValue) : widthValue;
+        const nextValue = findNextTableValue(valueInInches, newItems[index].widthTableNumber || 6);
+        newItems[index].selectedWidthTableValue = nextValue;
+        // Store the decimal value for calculations
+        newItems[index].widthDecimal = valueInInches;
+      }
+      // Update polish selection numbers after both height and width are potentially updated
+      updatePolishSelectionNumbers(newItems, index);
+    }
+
+    // Update polish selection when table numbers change
+    // Also recalculate selected table values when table number changes
+    if (field === "heightTableNumber") {
+      // Recalculate selected height table value based on current height
+      if (newItems[index].height) {
+        const heightValue = newItems[index].heightDecimal !== undefined 
+          ? newItems[index].heightDecimal 
+          : (newItems[index].sizeInMM ? parseFloat(newItems[index].height) : parseFraction(newItems[index].height));
+        if (heightValue !== null && !isNaN(heightValue)) {
+          const valueInInches = newItems[index].sizeInMM ? mmToInch(heightValue) : heightValue;
+          const nextValue = findNextTableValue(valueInInches, newItems[index].heightTableNumber || 6);
+          newItems[index].selectedHeightTableValue = nextValue;
+        }
+      }
+      updatePolishSelectionNumbers(newItems, index);
+    }
+    
+    if (field === "widthTableNumber") {
+      // Recalculate selected width table value based on current width
+      if (newItems[index].width) {
+        const widthValue = newItems[index].widthDecimal !== undefined 
+          ? newItems[index].widthDecimal 
+          : (newItems[index].sizeInMM ? parseFloat(newItems[index].width) : parseFraction(newItems[index].width));
+        if (widthValue !== null && !isNaN(widthValue)) {
+          const valueInInches = newItems[index].sizeInMM ? mmToInch(widthValue) : widthValue;
+          const nextValue = findNextTableValue(valueInInches, newItems[index].widthTableNumber || 6);
+          newItems[index].selectedWidthTableValue = nextValue;
+        }
+      }
+      updatePolishSelectionNumbers(newItems, index);
+    }
+
+    // Update polish selection when table values are manually changed
+    if (field === "selectedHeightTableValue" || field === "selectedWidthTableValue") {
+      updatePolishSelectionNumbers(newItems, index);
+    }
+
     // Auto-calculate area and subtotal
-    if (field === "height" || field === "width" || field === "heightUnit" || field === "widthUnit") {
+    if (field === "height" || field === "width" || field === "heightUnit" || field === "widthUnit" || field === "sizeInMM") {
+      // Use decimal values for calculations if available, otherwise parse from input
+      const heightForCalc = newItems[index].heightDecimal !== undefined 
+        ? newItems[index].heightDecimal 
+        : (newItems[index].sizeInMM ? parseFloat(newItems[index].height) : parseFraction(newItems[index].height));
+      const widthForCalc = newItems[index].widthDecimal !== undefined 
+        ? newItems[index].widthDecimal 
+        : (newItems[index].sizeInMM ? parseFloat(newItems[index].width) : parseFraction(newItems[index].width));
+      
       // Calculate area in the input unit for display
       const areaInUnit = calculateAreaInUnit(
-        newItems[index].height,
-        newItems[index].width,
-        newItems[index].heightUnit || "FEET",
-        newItems[index].widthUnit || "FEET"
+        heightForCalc || 0,
+        widthForCalc || 0,
+        newItems[index].heightUnit || "INCH",
+        newItems[index].widthUnit || "INCH"
       );
       newItems[index].area = areaInUnit;
       
       // For subtotal calculation, we need area in feet (since rate is per SqFt)
-      const heightInFeet = convertToFeet(newItems[index].height || 0, newItems[index].heightUnit || "FEET");
-      const widthInFeet = convertToFeet(newItems[index].width || 0, newItems[index].widthUnit || "FEET");
+      const heightInFeet = convertToFeet(heightForCalc || 0, newItems[index].heightUnit || "INCH");
+      const widthInFeet = convertToFeet(widthForCalc || 0, newItems[index].widthUnit || "INCH");
       const areaInFeet = heightInFeet * widthInFeet;
       const rate = parseFloat(newItems[index].ratePerSqft) || 0;
       const qty = parseInt(newItems[index].quantity) || 0;
@@ -222,8 +403,15 @@ function QuotationManagement() {
 
     if (field === "ratePerSqft" || field === "quantity") {
       // Recalculate subtotal when rate or quantity changes
-      const heightInFeet = convertToFeet(newItems[index].height || 0, newItems[index].heightUnit || "FEET");
-      const widthInFeet = convertToFeet(newItems[index].width || 0, newItems[index].widthUnit || "FEET");
+      const heightForCalc = newItems[index].heightDecimal !== undefined 
+        ? newItems[index].heightDecimal 
+        : (newItems[index].sizeInMM ? parseFloat(newItems[index].height) : parseFraction(newItems[index].height));
+      const widthForCalc = newItems[index].widthDecimal !== undefined 
+        ? newItems[index].widthDecimal 
+        : (newItems[index].sizeInMM ? parseFloat(newItems[index].width) : parseFraction(newItems[index].width));
+      
+      const heightInFeet = convertToFeet(heightForCalc || 0, newItems[index].heightUnit || "INCH");
+      const widthInFeet = convertToFeet(widthForCalc || 0, newItems[index].widthUnit || "INCH");
       const areaInFeet = heightInFeet * widthInFeet;
       const rate = parseFloat(newItems[index].ratePerSqft) || 0;
       const qty = parseInt(newItems[index].quantity) || 0;
@@ -231,6 +419,52 @@ function QuotationManagement() {
     }
 
     setFormData({ ...formData, items: newItems });
+  };
+
+  // Update polish selection numbers based on selected table values
+  // For glass, we need 4 sides: height, width, height, width
+  const updatePolishSelectionNumbers = (items, index) => {
+    const item = items[index];
+    const heightValue = item.selectedHeightTableValue;
+    const widthValue = item.selectedWidthTableValue;
+    
+    // Create array for 4 sides: height, width, height, width
+    const numbers = [];
+    if (heightValue) {
+      numbers.push(heightValue); // First height side
+      numbers.push(heightValue); // Second height side
+    }
+    if (widthValue) {
+      numbers.push(widthValue); // First width side
+      numbers.push(widthValue); // Second width side
+    }
+    
+    // If we have both values, order should be: height, width, height, width
+    // If only one value, duplicate it 4 times
+    let polishNumbers = [];
+    if (heightValue && widthValue) {
+      polishNumbers = [heightValue, widthValue, heightValue, widthValue];
+    } else if (heightValue) {
+      polishNumbers = [heightValue, heightValue, heightValue, heightValue];
+    } else if (widthValue) {
+      polishNumbers = [widthValue, widthValue, widthValue, widthValue];
+    }
+    
+    // Update polish selection array - always 4 rows
+    item.polishSelection = polishNumbers.map((num, idx) => {
+      // Check if this position already exists in polish selection
+      const existing = item.polishSelection?.[idx];
+      if (existing && existing.number === num) {
+        return existing; // Keep existing selection
+      }
+      return {
+        number: num,
+        type: null, // No selection by default
+        checked: false,
+        side: idx === 0 || idx === 2 ? "Height" : "Width", // Label for display
+        sideNumber: idx < 2 ? 1 : 2 // First or second side
+      };
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -296,6 +530,20 @@ function QuotationManagement() {
           const areaInFeet = heightInFeet * widthInFeet;
           const subtotal = areaInFeet * parseFloat(item.ratePerSqft || 0) * parseInt(item.quantity || 1);
 
+          // Store polish selection data in description as JSON
+          // Also store original fraction input for PDF display
+          const polishData = {
+            heightTableNumber: item.heightTableNumber || 6,
+            widthTableNumber: item.widthTableNumber || 6,
+            selectedHeightTableValue: item.selectedHeightTableValue,
+            selectedWidthTableValue: item.selectedWidthTableValue,
+            polishSelection: item.polishSelection || [],
+            polishRates: item.polishRates || { P: 15, H: 75, B: 75 },
+            heightOriginal: item.height || "", // Store original input (fraction or decimal)
+            widthOriginal: item.width || "",   // Store original input (fraction or decimal)
+            sizeInMM: item.sizeInMM || false  // Store unit mode
+          };
+          
           return {
             ...item,
             height: parseFloat(item.height),
@@ -306,6 +554,7 @@ function QuotationManagement() {
             subtotal: subtotal,
             heightUnit: item.heightUnit || "FEET",
             widthUnit: item.widthUnit || "FEET",
+            description: JSON.stringify(polishData), // Store polish selection as JSON
           };
         }),
       };
@@ -320,25 +569,31 @@ function QuotationManagement() {
     }
   };
 
-  const handleConfirm = async (quotationId, action) => {
+  const handleConfirm = async (quotationId, action, reason = null) => {
     try {
-      let rejectionReason = null;
-      if (action === "REJECTED") {
-        const reason = prompt("Enter rejection reason:");
-        if (reason === null) return; // User cancelled
-        rejectionReason = reason;
-      }
       await confirmQuotation(quotationId, {
         action: action,
-        rejectionReason: rejectionReason,
+        rejectionReason: reason,
       });
       setMessage("✅ Quotation " + (action === "CONFIRMED" ? "confirmed" : "rejected"));
       setConfirmAction(null);
+      setShowRejectionReasonModal(false);
+      setRejectionReason("");
       loadQuotations();
     } catch (error) {
       setMessage("❌ Failed to update quotation");
       setConfirmAction(null);
+      setShowRejectionReasonModal(false);
+      setRejectionReason("");
     }
+  };
+
+  const handleRejectWithReason = () => {
+    if (!rejectionReason.trim()) {
+      setMessage("❌ Please enter a rejection reason");
+      return;
+    }
+    handleConfirm(confirmAction.quotationId, "REJECTED", rejectionReason.trim());
   };
 
   const handleDelete = async (quotationId) => {
@@ -395,8 +650,15 @@ function QuotationManagement() {
           thickness: "",
           height: "",
           width: "",
-          heightUnit: "FEET",
-          widthUnit: "FEET",
+          sizeInMM: false,
+          heightUnit: "INCH",
+          widthUnit: "INCH",
+          heightTableNumber: 6,
+          widthTableNumber: 6,
+          selectedHeightTableValue: null,
+          selectedWidthTableValue: null,
+          polishSelection: [],
+          polishRates: { P: 15, H: 75, B: 75 },
           quantity: 1,
           ratePerSqft: "",
           design: "",
@@ -1238,101 +1500,456 @@ function QuotationManagement() {
                           onBlur={(e) => (e.target.style.borderColor = "#d1d5db")}
                         />
                       </div>
-                      <div>
-                        <label style={{ display: "block", marginBottom: "8px", color: "#374151", fontWeight: "500", fontSize: "14px" }}>
-                          Height * <span style={{ color: "#ef4444" }}>●</span>
-                        </label>
-                        <div style={{ display: "flex", gap: "10px" }}>
-                          <input
-                            type="number"
-                            required
-                            min="0"
-                            step="0.01"
-                            value={item.height}
-                            onChange={(e) => handleItemChange(index, "height", e.target.value)}
-                            placeholder="e.g., 6.5"
-                            style={{
-                              flex: 1,
-                              padding: "12px",
-                              borderRadius: "8px",
-                              border: "1px solid #d1d5db",
-                              fontSize: "14px",
-                              transition: "all 0.2s",
-                              boxSizing: "border-box",
-                            }}
-                            onFocus={(e) => (e.target.style.borderColor = "#6366f1")}
-                            onBlur={(e) => (e.target.style.borderColor = "#d1d5db")}
-                          />
-                          <select
-                            value={item.heightUnit || "FEET"}
-                            onChange={(e) => handleItemChange(index, "heightUnit", e.target.value)}
-                            style={{
-                              padding: "12px",
-                              borderRadius: "8px",
-                              border: "1px solid #d1d5db",
-                              fontSize: "14px",
-                              backgroundColor: "#fff",
-                              cursor: "pointer",
-                              transition: "all 0.2s",
-                              minWidth: "100px",
-                            }}
-                            onFocus={(e) => (e.target.style.borderColor = "#6366f1")}
-                            onBlur={(e) => (e.target.style.borderColor = "#d1d5db")}
-                          >
-                            <option value="MM">MM</option>
-                            <option value="INCH">Inch</option>
-                            <option value="FEET">Feet</option>
-                          </select>
+                      {/* Size Input Section */}
+                      <div style={{ gridColumn: isMobile ? "1" : "1 / -1", marginBottom: "20px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "15px" }}>
+                          <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                            <input
+                              type="checkbox"
+                              checked={item.sizeInMM || false}
+                              onChange={(e) => handleItemChange(index, "sizeInMM", e.target.checked)}
+                              style={{ width: "18px", height: "18px", cursor: "pointer" }}
+                            />
+                            <span style={{ color: "#374151", fontWeight: "500", fontSize: "14px" }}>Size in mm</span>
+                          </label>
                         </div>
-                        <p style={{ marginTop: "5px", color: "#6b7280", fontSize: "11px" }}>📏 Height measurement</p>
+                        
+                        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "15px" }}>
+                          <div>
+                            <label style={{ display: "block", marginBottom: "8px", color: "#374151", fontWeight: "500", fontSize: "14px" }}>
+                              Height * <span style={{ color: "#ef4444" }}>●</span>
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              value={item.height || ""}
+                              onChange={(e) => handleItemChange(index, "height", e.target.value)}
+                              placeholder={item.sizeInMM ? "e.g., 228.6 (mm)" : "e.g., 9 or 9 1/2 (inch)"}
+                              style={{
+                                width: "100%",
+                                padding: "12px",
+                                borderRadius: "8px",
+                                border: "1px solid #d1d5db",
+                                fontSize: "14px",
+                                transition: "all 0.2s",
+                                boxSizing: "border-box",
+                              }}
+                              onFocus={(e) => (e.target.style.borderColor = "#6366f1")}
+                              onBlur={(e) => {
+                                e.target.style.borderColor = "#d1d5db";
+                                // Validate and convert fraction to decimal on blur
+                                if (e.target.value && !item.sizeInMM) {
+                                  const parsed = parseFraction(e.target.value);
+                                  if (parsed !== null && !isNaN(parsed)) {
+                                    // Keep the original input but ensure calculations use decimal
+                                    const newItems = [...formData.items];
+                                    newItems[index].heightDecimal = parsed;
+                                    setFormData({ ...formData, items: newItems });
+                                  }
+                                }
+                              }}
+                            />
+                            <p style={{ marginTop: "5px", color: "#6b7280", fontSize: "11px" }}>
+                              📏 Height in {item.sizeInMM ? "MM" : "Inch"}
+                            </p>
+                          </div>
+                          <div>
+                            <label style={{ display: "block", marginBottom: "8px", color: "#374151", fontWeight: "500", fontSize: "14px" }}>
+                              Width * <span style={{ color: "#ef4444" }}>●</span>
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              value={item.width || ""}
+                              onChange={(e) => handleItemChange(index, "width", e.target.value)}
+                              placeholder={item.sizeInMM ? "e.g., 406.4 (mm)" : "e.g., 16 or 16 1/2 (inch)"}
+                              style={{
+                                width: "100%",
+                                padding: "12px",
+                                borderRadius: "8px",
+                                border: "1px solid #d1d5db",
+                                fontSize: "14px",
+                                transition: "all 0.2s",
+                                boxSizing: "border-box",
+                              }}
+                              onFocus={(e) => (e.target.style.borderColor = "#6366f1")}
+                              onBlur={(e) => {
+                                e.target.style.borderColor = "#d1d5db";
+                                // Validate and convert fraction to decimal on blur
+                                if (e.target.value && !item.sizeInMM) {
+                                  const parsed = parseFraction(e.target.value);
+                                  if (parsed !== null && !isNaN(parsed)) {
+                                    // Keep the original input but ensure calculations use decimal
+                                    const newItems = [...formData.items];
+                                    newItems[index].widthDecimal = parsed;
+                                    setFormData({ ...formData, items: newItems });
+                                  }
+                                }
+                              }}
+                            />
+                            <p style={{ marginTop: "5px", color: "#6b7280", fontSize: "11px" }}>
+                              📏 Width in {item.sizeInMM ? "MM" : "Inch"}
+                            </p>
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <label style={{ display: "block", marginBottom: "8px", color: "#374151", fontWeight: "500", fontSize: "14px" }}>
-                          Width * <span style={{ color: "#ef4444" }}>●</span>
-                        </label>
-                        <div style={{ display: "flex", gap: "10px" }}>
-                          <input
-                            type="number"
-                            required
-                            min="0"
-                            step="0.01"
-                            value={item.width}
-                            onChange={(e) => handleItemChange(index, "width", e.target.value)}
-                            placeholder="e.g., 4.0"
-                            style={{
-                              flex: 1,
-                              padding: "12px",
-                              borderRadius: "8px",
-                              border: "1px solid #d1d5db",
-                              fontSize: "14px",
-                              transition: "all 0.2s",
-                              boxSizing: "border-box",
-                            }}
-                            onFocus={(e) => (e.target.style.borderColor = "#6366f1")}
-                            onBlur={(e) => (e.target.style.borderColor = "#d1d5db")}
-                          />
-                          <select
-                            value={item.widthUnit || "FEET"}
-                            onChange={(e) => handleItemChange(index, "widthUnit", e.target.value)}
-                            style={{
-                              padding: "12px",
-                              borderRadius: "8px",
-                              border: "1px solid #d1d5db",
-                              fontSize: "14px",
-                              backgroundColor: "#fff",
-                              cursor: "pointer",
-                              transition: "all 0.2s",
-                              minWidth: "100px",
-                            }}
-                            onFocus={(e) => (e.target.style.borderColor = "#6366f1")}
-                            onBlur={(e) => (e.target.style.borderColor = "#d1d5db")}
-                          >
-                            <option value="MM">MM</option>
-                            <option value="INCH">Inch</option>
-                            <option value="FEET">Feet</option>
-                          </select>
+
+                      {/* Table Selection Section */}
+                      <div style={{ gridColumn: isMobile ? "1" : "1 / -1", marginBottom: "20px", padding: "20px", backgroundColor: "#f9fafb", borderRadius: "12px", border: "1px solid #e5e7eb" }}>
+                        <h4 style={{ color: "#374151", fontSize: "16px", fontWeight: "600", marginBottom: "15px" }}>Table Selection</h4>
+                        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "20px" }}>
+                          {/* Height Table */}
+                          <div>
+                            <label style={{ display: "block", marginBottom: "8px", color: "#374151", fontWeight: "500", fontSize: "14px" }}>
+                              Height Table Number
+                            </label>
+                            <input
+                              type="text"
+                              value={item.heightTableNumber ?? 6}
+                              onChange={(e) => {
+                                const val = e.target.value.trim();
+                                // Allow empty string, single digits, or numbers 1-12
+                                if (val === "" || /^[1-9]$|^1[0-2]$/.test(val)) {
+                                  const newItems = [...formData.items];
+                                  newItems[index].heightTableNumber = val === "" ? "" : (val ? parseInt(val) : 6);
+                                  setFormData({ ...formData, items: newItems });
+                                }
+                              }}
+                              onBlur={(e) => {
+                                const val = e.target.value.trim();
+                                const numVal = val === "" ? 6 : (parseInt(val) || 6);
+                                const finalVal = numVal < 1 ? 1 : (numVal > 12 ? 12 : numVal);
+                                const newItems = [...formData.items];
+                                newItems[index].heightTableNumber = finalVal;
+                                setFormData({ ...formData, items: newItems });
+                                // Trigger table value regeneration
+                                handleItemChange(index, "heightTableNumber", finalVal);
+                              }}
+                              placeholder="Enter 1-12"
+                              style={{
+                                width: "100%",
+                                padding: "10px",
+                                borderRadius: "8px",
+                                border: "1px solid #d1d5db",
+                                fontSize: "14px",
+                                marginBottom: "10px",
+                              }}
+                            />
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                              {generateTableValues(parseInt(item.heightTableNumber) || 6).map((val) => (
+                                <button
+                                  key={val}
+                                  type="button"
+                                  onClick={() => handleItemChange(index, "selectedHeightTableValue", val)}
+                                  style={{
+                                    padding: "8px 12px",
+                                    borderRadius: "6px",
+                                    border: item.selectedHeightTableValue === val ? "2px solid #6366f1" : "1px solid #d1d5db",
+                                    backgroundColor: item.selectedHeightTableValue === val ? "#eef2ff" : "white",
+                                    color: item.selectedHeightTableValue === val ? "#6366f1" : "#374151",
+                                    fontWeight: item.selectedHeightTableValue === val ? "600" : "400",
+                                    cursor: "pointer",
+                                    fontSize: "13px",
+                                    transition: "all 0.2s",
+                                  }}
+                                >
+                                  {val}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Width Table */}
+                          <div>
+                            <label style={{ display: "block", marginBottom: "8px", color: "#374151", fontWeight: "500", fontSize: "14px" }}>
+                              Width Table Number
+                            </label>
+                            <input
+                              type="text"
+                              value={item.widthTableNumber ?? 6}
+                              onChange={(e) => {
+                                const val = e.target.value.trim();
+                                // Allow empty string, single digits, or numbers 1-12
+                                if (val === "" || /^[1-9]$|^1[0-2]$/.test(val)) {
+                                  const newItems = [...formData.items];
+                                  newItems[index].widthTableNumber = val === "" ? "" : (val ? parseInt(val) : 6);
+                                  setFormData({ ...formData, items: newItems });
+                                }
+                              }}
+                              onBlur={(e) => {
+                                const val = e.target.value.trim();
+                                const numVal = val === "" ? 6 : (parseInt(val) || 6);
+                                const finalVal = numVal < 1 ? 1 : (numVal > 12 ? 12 : numVal);
+                                const newItems = [...formData.items];
+                                newItems[index].widthTableNumber = finalVal;
+                                setFormData({ ...formData, items: newItems });
+                                // Trigger table value regeneration
+                                handleItemChange(index, "widthTableNumber", finalVal);
+                              }}
+                              placeholder="Enter 1-12"
+                              style={{
+                                width: "100%",
+                                padding: "10px",
+                                borderRadius: "8px",
+                                border: "1px solid #d1d5db",
+                                fontSize: "14px",
+                                marginBottom: "10px",
+                              }}
+                            />
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                              {generateTableValues(parseInt(item.widthTableNumber) || 6).map((val) => (
+                                <button
+                                  key={val}
+                                  type="button"
+                                  onClick={() => handleItemChange(index, "selectedWidthTableValue", val)}
+                                  style={{
+                                    padding: "8px 12px",
+                                    borderRadius: "6px",
+                                    border: item.selectedWidthTableValue === val ? "2px solid #6366f1" : "1px solid #d1d5db",
+                                    backgroundColor: item.selectedWidthTableValue === val ? "#eef2ff" : "white",
+                                    color: item.selectedWidthTableValue === val ? "#6366f1" : "#374151",
+                                    fontWeight: item.selectedWidthTableValue === val ? "600" : "400",
+                                    cursor: "pointer",
+                                    fontSize: "13px",
+                                    transition: "all 0.2s",
+                                  }}
+                                >
+                                  {val}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         </div>
-                        <p style={{ marginTop: "5px", color: "#6b7280", fontSize: "11px" }}>📏 Width measurement</p>
+
+                        {/* Polish Selection Section - Inside Table Selection */}
+                        <div style={{ marginTop: "30px", paddingTop: "20px", borderTop: "2px solid #e5e7eb" }}>
+                          <h4 style={{ color: "#374151", fontSize: "16px", fontWeight: "600", marginBottom: "15px" }}>
+                            Polish Selection
+                          </h4>
+                          
+                          {/* Rate Configuration */}
+                          <div style={{ display: "flex", gap: "15px", marginBottom: "15px", padding: "12px", backgroundColor: "#f3f4f6", borderRadius: "8px" }}>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ display: "block", marginBottom: "5px", color: "#6b7280", fontSize: "12px" }}>P Rate</label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={item.polishRates?.P || 15}
+                                onChange={(e) => {
+                                  const newItems = [...formData.items];
+                                  newItems[index].polishRates = { ...newItems[index].polishRates, P: parseFloat(e.target.value) || 15 };
+                                  setFormData({ ...formData, items: newItems });
+                                }}
+                                style={{
+                                  width: "100%",
+                                  padding: "8px",
+                                  borderRadius: "6px",
+                                  border: "1px solid #d1d5db",
+                                  fontSize: "14px",
+                                }}
+                              />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ display: "block", marginBottom: "5px", color: "#6b7280", fontSize: "12px" }}>H Rate</label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={item.polishRates?.H || 75}
+                                onChange={(e) => {
+                                  const newItems = [...formData.items];
+                                  newItems[index].polishRates = { ...newItems[index].polishRates, H: parseFloat(e.target.value) || 75 };
+                                  setFormData({ ...formData, items: newItems });
+                                }}
+                                style={{
+                                  width: "100%",
+                                  padding: "8px",
+                                  borderRadius: "6px",
+                                  border: "1px solid #d1d5db",
+                                  fontSize: "14px",
+                                }}
+                              />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ display: "block", marginBottom: "5px", color: "#6b7280", fontSize: "12px" }}>B Rate</label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={item.polishRates?.B || 75}
+                                onChange={(e) => {
+                                  const newItems = [...formData.items];
+                                  newItems[index].polishRates = { ...newItems[index].polishRates, B: parseFloat(e.target.value) || 75 };
+                                  setFormData({ ...formData, items: newItems });
+                                }}
+                                style={{
+                                  width: "100%",
+                                  padding: "8px",
+                                  borderRadius: "6px",
+                                  border: "1px solid #d1d5db",
+                                  fontSize: "14px",
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Polish Selection Table - 4 rows for 4 sides */}
+                          {item.polishSelection && item.polishSelection.length > 0 ? (
+                            <div style={{ overflowX: "auto" }}>
+                              <table style={{ width: "100%", borderCollapse: "collapse", backgroundColor: "white", borderRadius: "8px", overflow: "hidden" }}>
+                                <thead>
+                                  <tr style={{ backgroundColor: "#f3f4f6" }}>
+                                  <th style={{ padding: "12px", textAlign: "left", borderBottom: "2px solid #e5e7eb", fontSize: "13px", fontWeight: "600", color: "#374151" }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={item.polishSelection.every(ps => ps.checked)}
+                                      onChange={(e) => {
+                                        const newItems = [...formData.items];
+                                        newItems[index].polishSelection = newItems[index].polishSelection.map(ps => ({ ...ps, checked: e.target.checked }));
+                                        setFormData({ ...formData, items: newItems });
+                                      }}
+                                      style={{ marginRight: "8px", cursor: "pointer" }}
+                                    />
+                                    Side
+                                  </th>
+                                  <th style={{ padding: "12px", textAlign: "center", borderBottom: "2px solid #e5e7eb", fontSize: "13px", fontWeight: "600", color: "#374151" }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={item.polishSelection.every(ps => ps.checked && ps.type === "P")}
+                                      onChange={(e) => {
+                                        const newItems = [...formData.items];
+                                        newItems[index].polishSelection = newItems[index].polishSelection.map(ps => ({
+                                          ...ps,
+                                          checked: e.target.checked,
+                                          type: e.target.checked ? "P" : null
+                                        }));
+                                        setFormData({ ...formData, items: newItems });
+                                      }}
+                                      style={{ marginRight: "8px", cursor: "pointer" }}
+                                    />
+                                    P (Polish)
+                                  </th>
+                                  <th style={{ padding: "12px", textAlign: "center", borderBottom: "2px solid #e5e7eb", fontSize: "13px", fontWeight: "600", color: "#374151" }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={item.polishSelection.every(ps => ps.checked && ps.type === "H")}
+                                      onChange={(e) => {
+                                        const newItems = [...formData.items];
+                                        newItems[index].polishSelection = newItems[index].polishSelection.map(ps => ({
+                                          ...ps,
+                                          checked: e.target.checked,
+                                          type: e.target.checked ? "H" : null
+                                        }));
+                                        setFormData({ ...formData, items: newItems });
+                                      }}
+                                      style={{ marginRight: "8px", cursor: "pointer" }}
+                                    />
+                                    H (Half-round)
+                                  </th>
+                                  <th style={{ padding: "12px", textAlign: "center", borderBottom: "2px solid #e5e7eb", fontSize: "13px", fontWeight: "600", color: "#374151" }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={item.polishSelection.every(ps => ps.checked && ps.type === "B")}
+                                      onChange={(e) => {
+                                        const newItems = [...formData.items];
+                                        newItems[index].polishSelection = newItems[index].polishSelection.map(ps => ({
+                                          ...ps,
+                                          checked: e.target.checked,
+                                          type: e.target.checked ? "B" : null
+                                        }));
+                                        setFormData({ ...formData, items: newItems });
+                                      }}
+                                      style={{ marginRight: "8px", cursor: "pointer" }}
+                                    />
+                                    B (Beveling)
+                                  </th>
+                                  <th style={{ padding: "12px", textAlign: "center", borderBottom: "2px solid #e5e7eb", fontSize: "13px", fontWeight: "600", color: "#374151" }}>Rate</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {item.polishSelection.map((ps, psIndex) => (
+                                    <tr key={psIndex} style={{ borderBottom: "1px solid #e5e7eb" }}>
+                                      <td style={{ padding: "12px" }}>
+                                        <input
+                                          type="checkbox"
+                                          checked={ps.checked || false}
+                                          onChange={(e) => {
+                                            const newItems = [...formData.items];
+                                            newItems[index].polishSelection[psIndex].checked = e.target.checked;
+                                            if (!e.target.checked) {
+                                              newItems[index].polishSelection[psIndex].type = null;
+                                            }
+                                            setFormData({ ...formData, items: newItems });
+                                          }}
+                                          style={{ marginRight: "8px", cursor: "pointer" }}
+                                        />
+                                        <span style={{ fontWeight: "600", color: "#374151" }}>
+                                          {ps.side} {ps.sideNumber} ({ps.number})
+                                        </span>
+                                      </td>
+                                      <td style={{ padding: "12px", textAlign: "center" }}>
+                                        <input
+                                          type="radio"
+                                          name={`polish-${index}-${psIndex}`}
+                                          checked={ps.type === "P"}
+                                          onChange={() => {
+                                            const newItems = [...formData.items];
+                                            newItems[index].polishSelection[psIndex].type = "P";
+                                            newItems[index].polishSelection[psIndex].checked = true;
+                                            setFormData({ ...formData, items: newItems });
+                                          }}
+                                          disabled={!ps.checked}
+                                          style={{ cursor: ps.checked ? "pointer" : "not-allowed" }}
+                                        />
+                                      </td>
+                                      <td style={{ padding: "12px", textAlign: "center" }}>
+                                        <input
+                                          type="radio"
+                                          name={`polish-${index}-${psIndex}`}
+                                          checked={ps.type === "H"}
+                                          onChange={() => {
+                                            const newItems = [...formData.items];
+                                            newItems[index].polishSelection[psIndex].type = "H";
+                                            newItems[index].polishSelection[psIndex].checked = true;
+                                            setFormData({ ...formData, items: newItems });
+                                          }}
+                                          disabled={!ps.checked}
+                                          style={{ cursor: ps.checked ? "pointer" : "not-allowed" }}
+                                        />
+                                      </td>
+                                      <td style={{ padding: "12px", textAlign: "center" }}>
+                                        <input
+                                          type="radio"
+                                          name={`polish-${index}-${psIndex}`}
+                                          checked={ps.type === "B"}
+                                          onChange={() => {
+                                            const newItems = [...formData.items];
+                                            newItems[index].polishSelection[psIndex].type = "B";
+                                            newItems[index].polishSelection[psIndex].checked = true;
+                                            setFormData({ ...formData, items: newItems });
+                                          }}
+                                          disabled={!ps.checked}
+                                          style={{ cursor: ps.checked ? "pointer" : "not-allowed" }}
+                                        />
+                                      </td>
+                                      <td style={{ padding: "12px", textAlign: "center", color: "#6b7280", fontSize: "13px" }}>
+                                        {ps.type === "P" && `₹${item.polishRates?.P || 15}`}
+                                        {ps.type === "H" && `₹${item.polishRates?.H || 75}`}
+                                        {ps.type === "B" && `₹${item.polishRates?.B || 75}`}
+                                        {!ps.type && "-"}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : (
+                            <p style={{ padding: "20px", textAlign: "center", color: "#9ca3af", fontSize: "14px", backgroundColor: "#f9fafb", borderRadius: "8px" }}>
+                              Enter height and width to see polish selection options
+                            </p>
+                          )}
+                        </div>
                       </div>
                       <div>
                         <label style={{ display: "block", marginBottom: "8px", color: "#374151", fontWeight: "500", fontSize: "14px" }}>
@@ -1383,34 +2000,6 @@ function QuotationManagement() {
                           onBlur={(e) => (e.target.style.borderColor = "#d1d5db")}
                         />
                         <p style={{ marginTop: "5px", color: "#6b7280", fontSize: "11px" }}>💰 Price per square foot</p>
-                      </div>
-                      <div>
-                        <label style={{ display: "block", marginBottom: "8px", color: "#374151", fontWeight: "500", fontSize: "14px" }}>
-                          Design (Optional)
-                        </label>
-                        <select
-                          value={item.design || ""}
-                          onChange={(e) => handleItemChange(index, "design", e.target.value)}
-                          style={{
-                            width: "100%",
-                            padding: "12px",
-                            borderRadius: "8px",
-                            border: "1px solid #d1d5db",
-                            fontSize: "14px",
-                            backgroundColor: "#fff",
-                            cursor: "pointer",
-                            transition: "all 0.2s",
-                            boxSizing: "border-box",
-                          }}
-                          onFocus={(e) => (e.target.style.borderColor = "#6366f1")}
-                          onBlur={(e) => (e.target.style.borderColor = "#d1d5db")}
-                        >
-                          <option value="">Select Design</option>
-                          <option value="POLISH">1. Polish</option>
-                          <option value="BEVELING">2. Beveling</option>
-                          <option value="HALF_ROUND">3. Half Round</option>
-                        </select>
-                        <p style={{ marginTop: "5px", color: "#6b7280", fontSize: "11px" }}>✨ Select glass edge design type</p>
                       </div>
                       <div>
                         <label style={{ display: "block", marginBottom: "8px", color: "#374151", fontWeight: "500", fontSize: "14px" }}>
@@ -1887,6 +2476,29 @@ function QuotationManagement() {
                 </div>
               </div>
 
+              {/* Rejection Reason - Show only if status is REJECTED */}
+              {selectedQuotation.status === "REJECTED" && selectedQuotation.rejectionReason && (
+                <div style={{ marginBottom: "25px", padding: "20px", backgroundColor: "#fef2f2", borderRadius: "12px", border: "2px solid #fca5a5" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+                    <div style={{ fontSize: "24px" }}>⚠️</div>
+                    <h3 style={{ margin: 0, color: "#991b1b", fontSize: "18px", fontWeight: "600" }}>Rejection Reason</h3>
+                  </div>
+                  <div style={{ 
+                    padding: "12px", 
+                    backgroundColor: "white", 
+                    borderRadius: "8px", 
+                    border: "1px solid #fecaca",
+                    fontSize: "14px",
+                    color: "#7f1d1d",
+                    lineHeight: "1.6",
+                    whiteSpace: "pre-wrap",
+                    wordWrap: "break-word"
+                  }}>
+                    {selectedQuotation.rejectionReason}
+                  </div>
+                </div>
+              )}
+
               {/* Financial Summary */}
               <div style={{ marginBottom: "25px", padding: "20px", backgroundColor: "#fef3c7", borderRadius: "12px", border: "2px solid #fbbf24" }}>
                 <h3 style={{ margin: "0 0 15px 0", color: "#92400e", fontSize: "18px", fontWeight: "600" }}>💰 Financial Summary</h3>
@@ -2095,10 +2707,13 @@ function QuotationManagement() {
                   onClick={() => {
                     if (confirmAction.type === "DELETE") {
                       handleDelete(confirmAction.quotationId);
+                    } else if (confirmAction.type === "REJECT") {
+                      // Show rejection reason modal instead of calling handleConfirm directly
+                      setShowRejectionReasonModal(true);
                     } else {
                       handleConfirm(
                         confirmAction.quotationId,
-                        confirmAction.type === "CONFIRM" ? "CONFIRMED" : "REJECTED"
+                        "CONFIRMED"
                       );
                     }
                   }}
@@ -2147,6 +2762,177 @@ function QuotationManagement() {
                 </button>
                 <button
                   onClick={() => setConfirmAction(null)}
+                  style={{
+                    flex: 1,
+                    padding: "12px 24px",
+                    backgroundColor: "#6b7280",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    cursor: "pointer",
+                    fontSize: "14px",
+                    fontWeight: "500",
+                    transition: "all 0.2s",
+                  }}
+                  onMouseOver={(e) => (e.target.style.backgroundColor = "#4b5563")}
+                  onMouseOut={(e) => (e.target.style.backgroundColor = "#6b7280")}
+                >
+                  ❌ Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Rejection Reason Modal */}
+        {showRejectionReasonModal && confirmAction && (
+          <div
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(0, 0, 0, 0.6)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 10005,
+              padding: isMobile ? "20px" : "0",
+            }}
+            onClick={() => {
+              setShowRejectionReasonModal(false);
+              setRejectionReason("");
+            }}
+          >
+            <div
+              style={{
+                backgroundColor: "white",
+                padding: isMobile ? "25px" : "35px",
+                borderRadius: "16px",
+                maxWidth: "500px",
+                width: "100%",
+                boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ marginBottom: "20px", textAlign: "center" }}>
+                <div
+                  style={{
+                    fontSize: "48px",
+                    marginBottom: "15px",
+                    color: "#f59e0b",
+                  }}
+                >
+                  ⚠️
+                </div>
+                <h2
+                  style={{
+                    margin: 0,
+                    color: "#1f2937",
+                    fontSize: isMobile ? "20px" : "24px",
+                    fontWeight: "700",
+                    marginBottom: "10px",
+                  }}
+                >
+                  Enter Rejection Reason
+                </h2>
+                <p style={{ margin: "8px 0 0 0", color: "#6b7280", fontSize: "14px", lineHeight: "1.6" }}>
+                  Please provide a reason for rejecting quotation "{confirmAction.quotationNumber}".
+                </p>
+                <div
+                  style={{
+                    marginTop: "15px",
+                    padding: "12px",
+                    backgroundColor: "#f3f4f6",
+                    borderRadius: "8px",
+                    textAlign: "left",
+                  }}
+                >
+                  <div style={{ fontSize: "13px", color: "#6b7280", marginBottom: "4px" }}>Quotation Details:</div>
+                  <div style={{ fontSize: "14px", color: "#1f2937", fontWeight: "600" }}>
+                    #{confirmAction.quotationNumber}
+                  </div>
+                  <div style={{ fontSize: "13px", color: "#6b7280", marginTop: "4px" }}>
+                    Customer: {confirmAction.customerName}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: "20px" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    color: "#1f2937",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Rejection Reason <span style={{ color: "#ef4444" }}>*</span>
+                </label>
+                <textarea
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  placeholder="Enter the reason for rejecting this quotation..."
+                  style={{
+                    width: "100%",
+                    minHeight: "120px",
+                    padding: "12px",
+                    border: "2px solid #e5e7eb",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    fontFamily: "inherit",
+                    resize: "vertical",
+                    outline: "none",
+                    transition: "border-color 0.2s",
+                  }}
+                  onFocus={(e) => (e.target.style.borderColor = "#f59e0b")}
+                  onBlur={(e) => (e.target.style.borderColor = "#e5e7eb")}
+                  autoFocus
+                />
+                {!rejectionReason.trim() && (
+                  <p style={{ fontSize: "12px", color: "#ef4444", marginTop: "4px", marginBottom: 0 }}>
+                    Rejection reason is required
+                  </p>
+                )}
+              </div>
+
+              <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: "12px" }}>
+                <button
+                  onClick={handleRejectWithReason}
+                  disabled={!rejectionReason.trim()}
+                  style={{
+                    flex: 1,
+                    padding: "12px 24px",
+                    backgroundColor: rejectionReason.trim() ? "#f59e0b" : "#d1d5db",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    cursor: rejectionReason.trim() ? "pointer" : "not-allowed",
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    transition: "all 0.2s",
+                    boxShadow: rejectionReason.trim() ? "0 4px 6px -1px rgba(0, 0, 0, 0.2)" : "none",
+                  }}
+                  onMouseOver={(e) => {
+                    if (rejectionReason.trim()) {
+                      e.target.style.backgroundColor = "#d97706";
+                    }
+                  }}
+                  onMouseOut={(e) => {
+                    if (rejectionReason.trim()) {
+                      e.target.style.backgroundColor = "#f59e0b";
+                    }
+                  }}
+                >
+                  ⚠️ Submit Rejection
+                </button>
+                <button
+                  onClick={() => {
+                    setShowRejectionReasonModal(false);
+                    setRejectionReason("");
+                  }}
                   style={{
                     flex: 1,
                     padding: "12px 24px",

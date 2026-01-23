@@ -420,7 +420,7 @@ public class StockService {
                         log.getAction(),
                         log.getGlassType(),
                         log.getQuantity(),
-                        log.getStandNo(),
+                        log.getStandNo() != null ? log.getStandNo() : 0, // Handle null standNo (e.g., for TRANSFER actions)
                         log.getTimestamp()
                 ))
                 .toList();

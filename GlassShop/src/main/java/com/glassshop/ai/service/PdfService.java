@@ -3,6 +3,8 @@ package com.glassshop.ai.service;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.format.DateTimeFormatter;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
@@ -802,9 +804,42 @@ public class PdfService {
             contentStream.showText(itemDesc);
             contentStream.endText();
 
+            // Size - use original fraction if available
             String size = "";
-            if (item.getHeight() != null && item.getWidth() != null) {
-                size = String.format("%.2f", item.getHeight()) + " × " + String.format("%.2f", item.getWidth());
+            String originalHeight = null;
+            String originalWidth = null;
+            boolean isMM = false;
+            
+            // Try to get original fraction from description JSON
+            if (item.getDescription() != null && !item.getDescription().isEmpty()) {
+                try {
+                    String desc = item.getDescription().trim();
+                    if (desc.startsWith("{") && desc.contains("heightOriginal")) {
+                        ObjectMapper mapper = new ObjectMapper();
+                        JsonNode polishData = mapper.readTree(desc);
+                        if (polishData.has("heightOriginal") && !polishData.get("heightOriginal").isNull()) {
+                            originalHeight = polishData.get("heightOriginal").asText();
+                        }
+                        if (polishData.has("widthOriginal") && !polishData.get("widthOriginal").isNull()) {
+                            originalWidth = polishData.get("widthOriginal").asText();
+                        }
+                        if (polishData.has("sizeInMM")) {
+                            isMM = polishData.get("sizeInMM").asBoolean(false);
+                        }
+                    }
+                } catch (Exception ex) {
+                    // If JSON parsing fails, use decimal
+                }
+            }
+            
+            if (originalHeight != null && originalWidth != null && !originalHeight.isEmpty() && !originalWidth.isEmpty() && !isMM) {
+                // Use original fraction input
+                size = originalHeight + " × " + originalWidth;
+            } else {
+                // Fallback to decimal format
+                if (item.getHeight() != null && item.getWidth() != null) {
+                    size = String.format("%.2f", item.getHeight()) + " × " + String.format("%.2f", item.getWidth());
+                }
             }
             contentStream.beginText();
             contentStream.newLineAtOffset(margin + 250, tableY);
@@ -816,9 +851,49 @@ public class PdfService {
             contentStream.showText(String.valueOf(item.getQuantity()));
             contentStream.endText();
 
+            String remarks = "Good Condition";
+            // Add polish selection details if available
+            if (item.getDescription() != null && !item.getDescription().isEmpty()) {
+                try {
+                    String desc = item.getDescription().trim();
+                    if (desc.startsWith("{") && desc.contains("polishSelection")) {
+                        ObjectMapper mapper = new ObjectMapper();
+                        JsonNode polishData = mapper.readTree(desc);
+                        
+                        int heightTable = polishData.has("heightTableNumber") ? polishData.get("heightTableNumber").asInt(6) : 6;
+                        int widthTable = polishData.has("widthTableNumber") ? polishData.get("widthTableNumber").asInt(6) : 6;
+                        int selectedHeight = polishData.has("selectedHeightTableValue") ? polishData.get("selectedHeightTableValue").asInt(0) : 0;
+                        int selectedWidth = polishData.has("selectedWidthTableValue") ? polishData.get("selectedWidthTableValue").asInt(0) : 0;
+                        
+                        remarks = "Table: H=" + heightTable + "(" + selectedHeight + "), W=" + widthTable + "(" + selectedWidth + ")";
+                        
+                        if (polishData.has("polishSelection") && polishData.get("polishSelection").isArray()) {
+                            JsonNode polishSelection = polishData.get("polishSelection");
+                            String polishInfo = "";
+                            for (int i = 0; i < polishSelection.size() && i < 4; i++) {
+                                JsonNode ps = polishSelection.get(i);
+                                if (ps.has("checked") && ps.get("checked").asBoolean(false)) {
+                                    String side = ps.has("side") ? ps.get("side").asText("") : "";
+                                    int sideNum = ps.has("sideNumber") ? ps.get("sideNumber").asInt(0) : 0;
+                                    String type = ps.has("type") && !ps.get("type").isNull() ? ps.get("type").asText("") : "";
+                                    if (!type.isEmpty()) {
+                                        polishInfo += side + " " + sideNum + "=" + type + " ";
+                                    }
+                                }
+                            }
+                            if (!polishInfo.isEmpty()) {
+                                remarks += " | Polish: " + polishInfo;
+                            }
+                        }
+                    }
+                } catch (Exception ex) {
+                    // If JSON parsing fails, use default remarks
+                }
+            }
+            
             contentStream.beginText();
             contentStream.newLineAtOffset(margin + 400, tableY);
-            contentStream.showText("Good Condition");
+            contentStream.showText(remarks.length() > 50 ? remarks.substring(0, 47) + "..." : remarks);
             contentStream.endText();
 
             tableY -= lineHeight;
@@ -986,12 +1061,43 @@ public class PdfService {
             contentStream.showText(itemDesc);
             contentStream.endText();
 
-            // Height with unit
+            // Height with unit - use original fraction if available
             String heightStr = "";
-            if (item.getHeight() != null) {
-                heightStr = String.format("%.2f", item.getHeight());
+            String originalHeight = null;
+            boolean isMM = false;
+            
+            // Try to get original fraction from description JSON
+            if (item.getDescription() != null && !item.getDescription().isEmpty()) {
+                try {
+                    String desc = item.getDescription().trim();
+                    if (desc.startsWith("{") && desc.contains("heightOriginal")) {
+                        ObjectMapper mapper = new ObjectMapper();
+                        JsonNode polishData = mapper.readTree(desc);
+                        if (polishData.has("heightOriginal") && !polishData.get("heightOriginal").isNull()) {
+                            originalHeight = polishData.get("heightOriginal").asText();
+                        }
+                        if (polishData.has("sizeInMM")) {
+                            isMM = polishData.get("sizeInMM").asBoolean(false);
+                        }
+                    }
+                } catch (Exception ex) {
+                    // If JSON parsing fails, use decimal
+                }
+            }
+            
+            if (originalHeight != null && !originalHeight.isEmpty() && !isMM) {
+                // Use original fraction input
+                heightStr = originalHeight;
                 if (item.getHeightUnit() != null) {
                     heightStr += " " + item.getHeightUnit();
+                }
+            } else {
+                // Fallback to decimal format
+                if (item.getHeight() != null) {
+                    heightStr = String.format("%.2f", item.getHeight());
+                    if (item.getHeightUnit() != null) {
+                        heightStr += " " + item.getHeightUnit();
+                    }
                 }
             }
             contentStream.beginText();
@@ -999,12 +1105,40 @@ public class PdfService {
             contentStream.showText(heightStr);
             contentStream.endText();
 
-            // Width with unit
+            // Width with unit - use original fraction if available
             String widthStr = "";
-            if (item.getWidth() != null) {
-                widthStr = String.format("%.2f", item.getWidth());
+            String originalWidth = null;
+            
+            // Try to get original fraction from description JSON (reuse isMM from height section)
+            if (item.getDescription() != null && !item.getDescription().isEmpty()) {
+                try {
+                    String desc = item.getDescription().trim();
+                    if (desc.startsWith("{") && desc.contains("widthOriginal")) {
+                        ObjectMapper mapper = new ObjectMapper();
+                        JsonNode polishData = mapper.readTree(desc);
+                        if (polishData.has("widthOriginal") && !polishData.get("widthOriginal").isNull()) {
+                            originalWidth = polishData.get("widthOriginal").asText();
+                        }
+                        // isMM already set in height section above
+                    }
+                } catch (Exception ex) {
+                    // If JSON parsing fails, use decimal
+                }
+            }
+            
+            if (originalWidth != null && !originalWidth.isEmpty() && !isMM) {
+                // Use original fraction input
+                widthStr = originalWidth;
                 if (item.getWidthUnit() != null) {
                     widthStr += " " + item.getWidthUnit();
+                }
+            } else {
+                // Fallback to decimal format
+                if (item.getWidth() != null) {
+                    widthStr = String.format("%.2f", item.getWidth());
+                    if (item.getWidthUnit() != null) {
+                        widthStr += " " + item.getWidthUnit();
+                    }
                 }
             }
             contentStream.beginText();
@@ -1033,6 +1167,78 @@ public class PdfService {
             contentStream.newLineAtOffset(margin + 450, tableY);
             contentStream.showText(design);
             contentStream.endText();
+
+            // Add polish selection details if available
+            if (item.getDescription() != null && !item.getDescription().isEmpty()) {
+                try {
+                    // Try to parse JSON from description
+                    String desc = item.getDescription().trim();
+                    if (desc.startsWith("{") && desc.contains("polishSelection")) {
+                        try {
+                            // Parse polish selection data using Jackson
+                            ObjectMapper mapper = new ObjectMapper();
+                            JsonNode polishData = mapper.readTree(desc);
+                            
+                            tableY -= lineHeight;
+                            if (tableY < 100) {
+                                contentStream.close();
+                                page = new PDPage(PDRectangle.A4);
+                                document.addPage(page);
+                                contentStream = new PDPageContentStream(document, page);
+                                tableY = 750;
+                            }
+                            
+                            contentStream.setFont(PDType1Font.HELVETICA_BOLD, 8);
+                            contentStream.beginText();
+                            contentStream.newLineAtOffset(margin, tableY);
+                            contentStream.showText("Polish Details:");
+                            contentStream.endText();
+                            tableY -= lineHeight;
+                            
+                            contentStream.setFont(PDType1Font.HELVETICA, 7);
+                            int heightTable = polishData.has("heightTableNumber") ? polishData.get("heightTableNumber").asInt(6) : 6;
+                            int widthTable = polishData.has("widthTableNumber") ? polishData.get("widthTableNumber").asInt(6) : 6;
+                            int selectedHeight = polishData.has("selectedHeightTableValue") ? polishData.get("selectedHeightTableValue").asInt(0) : 0;
+                            int selectedWidth = polishData.has("selectedWidthTableValue") ? polishData.get("selectedWidthTableValue").asInt(0) : 0;
+                            
+                            String tableInfo = "Table: H=" + heightTable + "(" + selectedHeight + "), W=" + widthTable + "(" + selectedWidth + ")";
+                            contentStream.beginText();
+                            contentStream.newLineAtOffset(margin + 10, tableY);
+                            contentStream.showText(tableInfo);
+                            contentStream.endText();
+                            tableY -= lineHeight;
+                            
+                            // Show polish selection for 4 sides
+                            if (polishData.has("polishSelection") && polishData.get("polishSelection").isArray()) {
+                                JsonNode polishSelection = polishData.get("polishSelection");
+                                String polishInfo = "Sides: ";
+                                for (int i = 0; i < polishSelection.size() && i < 4; i++) {
+                                    JsonNode ps = polishSelection.get(i);
+                                    if (ps.has("checked") && ps.get("checked").asBoolean(false)) {
+                                        String side = ps.has("side") ? ps.get("side").asText("") : "";
+                                        int sideNum = ps.has("sideNumber") ? ps.get("sideNumber").asInt(0) : 0;
+                                        String type = ps.has("type") && !ps.get("type").isNull() ? ps.get("type").asText("") : "";
+                                        if (!type.isEmpty()) {
+                                            polishInfo += side + " " + sideNum + "=" + type + " ";
+                                        }
+                                    }
+                                }
+                                if (!polishInfo.equals("Sides: ")) {
+                                    contentStream.beginText();
+                                    contentStream.newLineAtOffset(margin + 10, tableY);
+                                    contentStream.showText(polishInfo);
+                                    contentStream.endText();
+                                    tableY -= lineHeight;
+                                }
+                            }
+                        } catch (Exception ex) {
+                            // If JSON parsing fails, ignore and continue
+                        }
+                    }
+                } catch (Exception e) {
+                    // If JSON parsing fails, ignore and continue
+                }
+            }
 
             tableY -= lineHeight;
         }

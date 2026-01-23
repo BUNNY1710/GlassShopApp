@@ -57,6 +57,12 @@ public class JwtFilter extends OncePerRequestFilter {
                 	    SecurityContextHolder.getContext().getAuthentication() == null &&
                 	    jwtUtil.validateToken(token)) {
 
+                    // Ensure role is not null and properly formatted
+                    if (role == null || role.trim().isEmpty()) {
+                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                        return;
+                    }
+
                     SimpleGrantedAuthority authority = new SimpleGrantedAuthority(role);
 
                     UsernamePasswordAuthenticationToken authentication =

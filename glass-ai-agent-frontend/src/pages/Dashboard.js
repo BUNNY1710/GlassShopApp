@@ -232,9 +232,16 @@ function Dashboard() {
             .catch(() => [])
           : Promise.resolve([]);
 
-        // Load audit logs (only for admin)
+        // Load audit logs (only for admin) - for activity logs count
         const auditPromise = role === "ROLE_ADMIN"
           ? api.get("/audit/recent")
+            .then(res => res.data)
+            .catch(() => [])
+          : Promise.resolve([]);
+
+        // Load recent stock activity (only for admin) - for Recent Stock Activity section
+        const recentStockActivityPromise = role === "ROLE_ADMIN"
+          ? api.get("/stock/recent")
             .then(res => res.data)
             .catch(() => [])
           : Promise.resolve([]);
@@ -258,16 +265,17 @@ function Dashboard() {
           });
 
         // Wait for all API calls
-        const [stockData, staffData, auditData, transferCount] = await Promise.all([
+        const [stockData, staffData, auditData, transferCount, recentStockActivity] = await Promise.all([
           stockPromise,
           staffPromise,
           auditPromise,
           transferCountPromise,
+          recentStockActivityPromise,
         ]);
 
-        // Set recent audit logs (last 3) - only for admin
+        // Set recent stock activity (last 3) - only for admin
         if (role === "ROLE_ADMIN") {
-          setAuditLogs(auditData.slice(0, 3));
+          setAuditLogs(Array.isArray(recentStockActivity) ? recentStockActivity.slice(0, 3) : []);
         }
 
         // Calculate stats
@@ -484,20 +492,7 @@ function Dashboard() {
                           </span>
                         </div>
 
-                        <div style={auditSize}>
-                          Size:{" "}
-                          {log.height && log.width ? (
-                            <>
-                              {log.height} × {log.width}{" "}
-                              {log.unit || log.glassUnit || "MM"}
-                            </>
-                          ) : (
-                            <span style={{ opacity: 0.6 }}>Not specified</span>
-                          )}
-                        </div>
-
                         <div style={auditBottom}>
-                          {log.role} •{" "}
                           {new Date(log.timestamp).toLocaleString()}
                         </div>
                       </div>

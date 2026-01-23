@@ -1,0 +1,86 @@
+QUOTATION MANAGEMENT - COMPLETE FEATURE IMPLEMENTATION PROMPT
+================================================================
+
+IMPLEMENT THE FOLLOWING FEATURES IN THE QUOTATION CREATION FORM:
+
+1. SIZE INPUT WITH MM/INCH TOGGLE
+   - Add checkbox "Size in mm" above height/width fields
+   - Default: INCH mode (unchecked)
+   - When checked: Input in MM, when unchecked: Input in INCH
+   - Change height/width inputs to TEXT type (not number) to support fractions
+
+2. FRACTION INPUT SUPPORT (INCH MODE ONLY)
+   - Accept formats: "9 1/2", "9-1/2", "1/2", "9.5", "9"
+   - Parse fractions to decimal for calculations
+   - Keep original input in field, use decimal for calculations
+   - Placeholder: "e.g., 9 or 9 1/2 (inch)"
+
+3. TABLE SELECTION SECTION
+   - Two columns: Height Table and Width Table
+   - Each has:
+     a) Table Number input (text, editable, default 6, range 1-12)
+     b) Table value buttons showing: tableNumber × 1, 2, 3... up to 11
+     c) Selected value highlighted in blue
+   - Auto-selection logic:
+     * When height/width entered, find next table value
+     * If input exactly matches table value → select that
+     * If no match → select next value greater than input
+     * Example: Height 9, Table 2 → selects 10 (next after 9)
+   - When table number changes, recalculate based on current height/width
+
+4. POLISH SELECTION SECTION (REPLACE DESIGN DROPDOWN)
+   - Location: Inside Table Selection section, below table buttons
+   - Rate Configuration: Three inputs (P=15, H=75, B=75, modifiable)
+   - Table with 4 rows (4 sides of glass):
+     * Row 1: Height 1 (shows selected height table value)
+     * Row 2: Width 1 (shows selected width table value)
+     * Row 3: Height 2 (shows selected height table value)
+     * Row 4: Width 2 (shows selected width table value)
+   - Columns:
+     * Side: Checkbox + label "Height 1 (12)"
+     * P (Polish): Radio button
+     * H (Half-round): Radio button
+     * B (Beveling): Radio button
+     * Rate: Shows rate for selected type
+   - Selection rules:
+     * Only one type (P/H/B) per row
+     * Radio buttons disabled until row checkbox checked
+     * Header checkboxes: "Select All" for each column
+   - Update automatically when table values change
+
+5. DATA STORAGE
+   - Store polish selection as JSON in description field:
+     {
+       "heightTableNumber": 6,
+       "widthTableNumber": 6,
+       "selectedHeightTableValue": 12,
+       "selectedWidthTableValue": 18,
+       "polishSelection": [...],
+       "polishRates": {"P": 15, "H": 75, "B": 75}
+     }
+
+6. PDF UPDATES
+   - Cutting Pad: Show polish details below each item
+   - Delivery Challan: Show polish details in Remarks column
+
+REQUIRED FUNCTIONS:
+- parseFraction(input) - Parse "9 1/2" to 9.5
+- generateTableValues(tableNumber) - Generate [6,12,18...]
+- findNextTableValue(input, tableNumber) - Find exact match or next value
+- updatePolishSelectionNumbers() - Update 4 rows based on table values
+
+IMPLEMENTATION ORDER:
+1. Add MM/INCH toggle and fraction support
+2. Add Table Selection section
+3. Implement auto-selection logic
+4. Add Polish Selection section
+5. Update data storage
+6. Update PDF generation
+
+TEST CASES:
+- Height: 9 1/2, Table 2 → Should select 10
+- Height: 8, Table 2 → Should select 8 (exact match)
+- Change table from 6 to 2 → Should recalculate
+- Select polish types → Should show correct rates
+- Generate PDF → Should show polish details
+

@@ -245,7 +245,7 @@ public class AiStockAdvisorService {
 
         // Count actions by stand number
         Map<Integer, Long> standActivity = allLogs.stream()
-                .filter(log -> log.getStandNo() > 0) // Valid stand number
+                .filter(log -> log.getStandNo() != null && log.getStandNo() > 0) // Valid stand number
                 .collect(Collectors.groupingBy(
                         AuditLog::getStandNo,
                         Collectors.counting()
@@ -274,7 +274,7 @@ public class AiStockAdvisorService {
         if (!sortedStands.isEmpty()) {
             int topStand = sortedStands.get(0).getKey();
             Map<String, Long> actionBreakdown = allLogs.stream()
-                    .filter(log -> log.getStandNo() == topStand)
+                    .filter(log -> log.getStandNo() != null && log.getStandNo() == topStand)
                     .collect(Collectors.groupingBy(
                             AuditLog::getAction,
                             Collectors.counting()
